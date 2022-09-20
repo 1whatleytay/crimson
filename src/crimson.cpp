@@ -38,7 +38,7 @@ std::unordered_set<char> hardCharacters() {
     };
 }
 
-bool AnyHard::stop(std::string_view view) const {
+bool AnyHard::stop(std::string_view view, State &state) const {
     auto value = view[0];
 
     return std::isspace(value) || stopAt.find(value) != stopAt.end();
@@ -47,11 +47,11 @@ bool AnyHard::stop(std::string_view view) const {
 AnyHard::AnyHard() : stopAt(hardCharacters()) { }
 AnyHard::AnyHard(std::unordered_set<char> stopAt) : stopAt(std::move(stopAt)) { }
 
-bool NotSpace::stop(std::string_view view) const {
+bool NotSpace::stop(std::string_view view, State &state) const {
     return !std::isspace(view[0]);
 }
 
-bool StringStops::stop(std::string_view view) const {
+bool StringStops::stop(std::string_view view, State &state) const {
     return std::any_of(stops.begin(), stops.end(), [view](auto stop) {
         return stop.size() < view.size() && view.substr(0, view.size()) == stop;
     });
@@ -60,7 +60,7 @@ bool StringStops::stop(std::string_view view) const {
 StringStops::StringStops(const std::vector<std::string_view> &stops) : stops(stops) { }
 
 void State::push(const Stoppable &stoppable) {
-    while (index < count && !stoppable.stop({ &text[index], count - index })) {
+    while (index < count && !stoppable.stop({ &text[index], count - index }, *this)) {
         index++;
     }
 }
@@ -75,11 +75,11 @@ std::string_view State::pull(size_t size) const {
     return { &text[index], std::min(size, count - index) };
 }
 
-size_t State::until(const Stoppable &stoppable) const {
+size_t State::until(const Stoppable &stoppable) {
     size_t size = 0;
 
     while ((index + size) < count) {
-        if (stoppable.stop({ &text[index + size], count - index - size })) {
+        if (stoppable.stop({ &text[index + size], count - index - size }, *this)) {
             break;
         }
 
@@ -89,11 +89,19 @@ size_t State::until(const Stoppable &stoppable) const {
     return size;
 }
 
-bool State::ends(size_t size, const Stoppable &stoppable) const {
-    return (index + size >= count) || stoppable.stop({ &text[index + size], count - index - size });
+bool State::ends(size_t size, const Stoppable &stoppable) {
+    return (index + size >= count) || stoppable.stop({ &text[index + size], count - index - size }, *this);
 }
 
 State::State(std::string_view view) : text(view.data()), index(0), count(view.size()) { }
+
+Context Context::extend(const Stoppable *s, const Stoppable *t) {
+    return Context {
+        state,
+        s ? *s : space,
+        t ? *t : token,
+    };
+}
 
 void Context::push() { state.push(space); }
 

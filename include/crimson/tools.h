@@ -62,6 +62,14 @@ template <typename T>
 requires Exposable<T>
 struct Discard;
 
+template <typename T>
+requires Exposable<T>
+struct MatchContext;
+
+template <typename T, typename StoppableType>
+requires Exposable<T>
+struct SetStoppable;
+
 template <typename Self>
 struct RuleModifiers {
     Self &&self() {
@@ -113,6 +121,15 @@ struct RuleModifiers {
 
     auto discard() {
         return Discard<Self> { self() };
+    }
+
+    auto matchContext() {
+        return MatchContext<Self> { self() };
+    }
+
+    template <typename StoppableType>
+    auto setStoppable(StoppableType &&stoppable) {
+        return SetStoppable<Self, StoppableType> { self(), std::forward<StoppableType>(stoppable) };
     }
 };
 
@@ -200,6 +217,65 @@ struct Until: public RuleModifiers<Until> {
     }
 
     explicit Until(std::vector<std::string_view> stops) : stops(std::move(stops)) { }
+};
+
+template <typename StoppableType>
+struct UntilStoppable: public RuleModifiers<UntilStoppable<StoppableType>> {
+    StoppableType stoppable;
+
+    ParserResult<std::string> expose(Context &context) const {
+        auto size = context.state.until(stoppable);
+
+        std::string text(context.pull(size));
+        context.pop(size);
+
+        return ParserResult<std::string> { text };
+    }
+
+    UntilStoppable(StoppableType &&stoppable) : stoppable(std::forward<StoppableType>(stoppable)) { }
+};
+
+template <typename T, typename StoppableType>
+requires Exposable<T>
+struct SetStoppable: public RuleModifiers<SetStoppable<T, StoppableType>> {
+    T value;
+    StoppableType stoppable;
+
+    auto expose(Context &context) const {
+        auto subContext = context.extend(&stoppable, nullptr);
+
+        auto result = value.expose(subContext);
+
+        if (subContext.matched)
+            context.matched = true;
+
+        return result;
+    }
+
+    SetStoppable(T &&value, StoppableType &&stoppable)
+        : value(std::forward<T>(value)), stoppable(std::forward<StoppableType>(stoppable)) { }
+};
+
+template <typename T>
+requires Exposable<T>
+struct MatchContext: public RuleModifiers<MatchContext<T>> {
+    T value;
+
+    auto expose(Context &context) const {
+        auto subContext = context.extend(nullptr, nullptr);
+
+        return value.expose(context);
+    }
+
+    explicit MatchContext(T &&value) : value(std::forward<T>(value)) { }
+};
+
+struct Match: public RuleModifiers<Match> {
+    ParserResult<> expose(Context &context) const {
+        context.matched = true;
+
+        return ParserResult<> { std::make_tuple() };
+    }
 };
 
 template <typename T>
@@ -543,13 +619,13 @@ struct Capture: public RuleModifiers<Capture<T>> {
 
 template <typename ...Produces>
 struct Wrap {
-    AnyRule<Produces...> *rule;
+    const AnyRule<Produces...> *rule;
 
     ParserResult<Produces...> expose(Context &context) const {
         return rule->dispatch(context);
     }
 
-    explicit Wrap(AnyRule<Produces...> *rule) : rule(rule) { }
+    explicit Wrap(const AnyRule<Produces...> *rule) : rule(rule) { }
 };
 
 template <typename ...Args1, typename ...Args2>

@@ -107,16 +107,18 @@ struct ParserResult: public Result<std::tuple<Args...>> {
     explicit ParserResult(Error &&e) : Result<std::tuple<Args...>>(std::move(e)) { }
 };
 
+struct State;
+
 struct Stoppable {
     [[nodiscard]]
-    virtual bool stop(std::string_view view) const = 0;
+    virtual bool stop(std::string_view view, State &state) const = 0;
 };
 
 struct AnyHard: public Stoppable {
     std::unordered_set<char> stopAt;
 
     [[nodiscard]]
-    bool stop(std::string_view view) const override;
+    bool stop(std::string_view view, State &state) const override;
 
     AnyHard();
     explicit AnyHard(std::unordered_set<char> stopAt);
@@ -124,14 +126,14 @@ struct AnyHard: public Stoppable {
 
 struct NotSpace: public Stoppable {
     [[nodiscard]]
-    bool stop(std::string_view view) const override;
+    bool stop(std::string_view view, State &state) const override;
 };
 
 struct StringStops: public Stoppable {
     const std::vector<std::string_view> &stops;
 
     [[nodiscard]]
-    bool stop(std::string_view view) const override;
+    bool stop(std::string_view view, State &state) const override;
 
     explicit StringStops(const std::vector<std::string_view> &stops);
 };
@@ -149,10 +151,10 @@ struct State {
     std::string_view pull(size_t size) const;
 
     [[nodiscard]]
-    size_t until(const Stoppable &stoppable) const;
+    size_t until(const Stoppable &stoppable);
 
     [[nodiscard]]
-    bool ends(size_t size, const Stoppable &stoppable) const;
+    bool ends(size_t size, const Stoppable &stoppable);
 
     explicit State(std::string_view view);
 };
@@ -163,6 +165,8 @@ struct Context {
     const Stoppable &token;
 
     bool matched = false;
+
+    Context extend(const Stoppable *space, const Stoppable *token);
 
     void push();
 
