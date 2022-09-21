@@ -263,8 +263,9 @@ struct MatchContext: public RuleModifiers<MatchContext<T>> {
 
     auto expose(Context &context) const {
         auto subContext = context.extend(nullptr, nullptr);
+        subContext.matched = false;
 
-        return value.expose(context);
+        return value.expose(subContext);
     }
 
     explicit MatchContext(T &&value) : value(std::forward<T>(value)) { }
@@ -485,6 +486,13 @@ struct Many: public RuleModifiers<Many<T>> {
         // always, since only way to exit that loop is for an error to happen
         context.state.index = lastIndex;
 
+        auto error = result.error();
+        assert(error);
+
+        if (error->matched) {
+            return ParserResult<std::vector<ExposeType<T>>> { std::move(*error) };
+        }
+
         return { list };
     }
 
@@ -514,6 +522,13 @@ struct ManyMap: public RuleModifiers<ManyMap<T, K>> {
 
         // always, since only way to exit that loop is for an error to happen
         context.state.index = lastIndex;
+
+        auto error = result.error();
+        assert(error);
+
+        if (error->matched) {
+            return ParserResult<std::vector<Result>> { std::move(*error) };
+        }
 
         return ParserResult<std::vector<Result>> { list };
     }
@@ -549,7 +564,10 @@ auto anyOfTupleSized(const std::tuple<Args ...> &value, Context &context) {
     } else {
         size_t start = context.state.index;
 
-        auto result = expose(std::get<index>(value), context);
+        auto subContext = context.extend(nullptr, nullptr);
+        subContext.matched = false;
+
+        auto result = expose(std::get<index>(value), subContext);
 
         if (auto pointer = result.ptr()) {
             auto ptr = [pointer]() {
@@ -570,6 +588,13 @@ auto anyOfTupleSized(const std::tuple<Args ...> &value, Context &context) {
         }
 
         context.state.index = start;
+
+        auto error = result.error();
+        assert(error);
+
+        if (error->matched) {
+            return ParserResult<Type> { std::move(*error) };
+        }
 
         return anyOfTupleSized<self, index + 1, Args...>(value, context);
     }

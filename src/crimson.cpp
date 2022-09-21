@@ -1,29 +1,33 @@
 #include <crimson/crimson.h>
 
-std::string reasonText(const ErrorMustMatchText &reason) {
+std::string reasonSubtext(const ErrorMustMatchText &reason) {
     std::stringstream stream;
     stream << "Expected " << reason.text << " but got something else.";
 
     return stream.str();
 }
 
-std::string reasonText(const ErrorRequiresSpaceAfter &reason) {
+std::string reasonSubtext(const ErrorRequiresSpaceAfter &reason) {
     std::stringstream stream;
-    stream << "Expected " << reason.keyword << " but got something else.";
+    stream << "Expected trailing space after " << reason.keyword << " but got something else.";
 
     return stream.str();
 }
 
-std::string reasonText(const ErrorMissingToken &reason) {
+std::string reasonSubtext(const ErrorMissingToken &reason) {
     return "Expected some token here.";
 }
 
-std::string reasonText(const ErrorProhibitsPattern &reason) {
+std::string reasonSubtext(const ErrorProhibitsPattern &reason) {
     return "This pattern is explicitly prohibited here.";
 }
 
+std::string reasonSubtext(const ErrorNoMatchingPattern &reason) {
+    return "Expected some subpattern here but gone none.";
+}
+
 std::string reasonText(const ErrorReason &reason) {
-    return std::visit([](const auto &value) { return reasonText(value); }, reason);
+    return std::visit([](const auto &value) { return reasonSubtext(value); }, reason);
 }
 
 Error::Error(size_t index, ErrorReason reason, bool matched)
