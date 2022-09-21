@@ -217,7 +217,7 @@ struct AnyRule {
 #pragma ide diagnostic ignored "google-explicit-constructor"
     template <typename T>
     requires Exposable<T>
-    AnyRule(T &&t): value { new T(std::forward<T>(t)), [](void *v) { delete static_cast<T *>(v); } } {
+    AnyRule(T &&t) : value { new T(std::forward<T>(t)), [](void *v) { delete static_cast<T *>(v); } } {
         func = [](Context &context, void *ptr) {
             return static_cast<T *>(ptr)->expose(context);
         };

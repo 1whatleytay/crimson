@@ -352,12 +352,14 @@ struct MaybeMap: public RuleModifiers<Maybe<T>> {
         auto result = value.expose(context);
 
         if (auto pointer = result.ptr()) {
-            return { std::optional { map(std::move(*pointer)) } };
+            return ParserResult<std::optional<Result>> {
+                std::optional { map(std::move(*pointer)) }
+            };
         }
 
         context.state.index = start;
 
-        return { std::nullopt };
+        return ParserResult<std::optional<Result>> { std::nullopt };
     }
 
     MaybeMap(T &&value, K &&map) : value(std::forward<T>(value)), map(std::forward<K>(map)) { }
@@ -399,8 +401,8 @@ struct Peek: public RuleModifiers<Peek<T>> {
     explicit Peek(T &&value) : value(std::forward<T>(value)) { }
 };
 
-auto toSelf = [](auto tuple) { return std::get<0>(tuple); };
-auto toStringSelf = [](auto tuple) { return std::string(std::get<0>(tuple)); };
+constexpr auto toSelf = [](auto tuple) { return std::get<0>(tuple); };
+constexpr auto toStringSelf = [](auto tuple) { return std::string(std::get<0>(tuple)); };
 
 template <typename T, typename K>
 requires Exposable<T>
@@ -522,6 +524,9 @@ struct ManyMap: public RuleModifiers<ManyMap<T, K>> {
 template <typename T>
 struct FirstTupleHelper { };
 
+template <>
+struct FirstTupleHelper<std::tuple<>> { using Type = std::monostate; };
+
 template <typename T, typename ...Args>
 struct FirstTupleHelper<std::tuple<T, Args...>> { using Type = T; };
 
@@ -542,6 +547,8 @@ auto anyOfTupleSized(const std::tuple<Args ...> &value, Context &context) {
     if constexpr (index >= std::tuple_size_v<Tuple>) {
         return context.error<Type>(ErrorNoMatchingPattern());
     } else {
+        size_t start = context.state.index;
+
         auto result = expose(std::get<index>(value), context);
 
         if (auto pointer = result.ptr()) {
@@ -561,6 +568,8 @@ auto anyOfTupleSized(const std::tuple<Args ...> &value, Context &context) {
                 )
             );
         }
+
+        context.state.index = start;
 
         return anyOfTupleSized<self, index + 1, Args...>(value, context);
     }
@@ -618,7 +627,7 @@ struct Capture: public RuleModifiers<Capture<T>> {
 };
 
 template <typename ...Produces>
-struct Wrap {
+struct Wrap: public RuleModifiers<Wrap<Produces...>> {
     const AnyRule<Produces...> *rule;
 
     ParserResult<Produces...> expose(Context &context) const {
