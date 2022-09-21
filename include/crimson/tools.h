@@ -165,11 +165,11 @@ struct Keyword: public RuleModifiers<Keyword> {
             return context.error<>(ErrorMustMatchText { text });
         }
 
-        context.pop(text.size());
-
         if (!context.ends(text.size())) {
             return context.error<>(ErrorRequiresSpaceAfter { text });
         }
+
+        context.pop(text.size());
 
         return ParserResult<> { std::make_tuple() };
     }

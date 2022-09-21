@@ -53,7 +53,7 @@ bool NotSpace::stop(std::string_view view, State &state) const {
 
 bool StringStops::stop(std::string_view view, State &state) const {
     return std::any_of(stops.begin(), stops.end(), [view](auto stop) {
-        return stop.size() < view.size() && view.substr(0, view.size()) == stop;
+        return stop.size() <= view.size() && view.substr(0, stop.size()) == stop;
     });
 }
 

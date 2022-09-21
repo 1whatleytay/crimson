@@ -219,7 +219,7 @@ struct AnyRule {
     requires Exposable<T>
     AnyRule(T &&t): value { new T(std::forward<T>(t)), [](void *v) { delete static_cast<T *>(v); } } {
         func = [](Context &context, void *ptr) {
-            return ::expose(*static_cast<T *>(ptr), context);
+            return static_cast<T *>(ptr)->expose(context);
         };
     }
 #pragma clang diagnostic pop
