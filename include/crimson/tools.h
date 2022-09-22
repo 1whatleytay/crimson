@@ -402,7 +402,7 @@ struct Peek: public RuleModifiers<Peek<T>> {
     explicit Peek(T &&value) : value(std::forward<T>(value)) { }
 };
 
-constexpr auto toSelf = [](auto tuple) { return std::get<0>(tuple); };
+constexpr auto toSelf = [](auto tuple) { return std::move(std::get<0>(tuple)); };
 constexpr auto toStringSelf = [](auto tuple) { return std::string(std::get<0>(tuple)); };
 
 template <typename T, typename K>
@@ -471,13 +471,11 @@ struct Many: public RuleModifiers<Many<T>> {
     ParserResult<std::vector<ExposeType<T>>> expose(Context &context) const {
         std::vector<ExposeType<T>> list;
 
-        ExposeResultType<T> result;
-
         size_t lastIndex = context.state.index;
 
-        result = value.expose(context);
+        ExposeResultType<T> result = value.expose(context);
         while (auto pointer = result.ptr()) {
-            list.push_back(*pointer);
+            list.push_back(std::move(*pointer));
             lastIndex = context.state.index;
 
             result = value.expose(context);
@@ -493,7 +491,7 @@ struct Many: public RuleModifiers<Many<T>> {
             return ParserResult<std::vector<ExposeType<T>>> { std::move(*error) };
         }
 
-        return { list };
+        return ParserResult<std::vector<ExposeType<T>>> { std::move(list) };
     }
 
     explicit Many(T &&value) : value(std::forward<T>(value)) { }
@@ -530,7 +528,7 @@ struct ManyMap: public RuleModifiers<ManyMap<T, K>> {
             return ParserResult<std::vector<Result>> { std::move(*error) };
         }
 
-        return ParserResult<std::vector<Result>> { list };
+        return ParserResult<std::vector<Result>> { std::move(list) };
     }
 
     explicit ManyMap(T &&value, K &&map) : value(std::forward<T>(value)), map(std::forward<K>(map)) { }
@@ -672,11 +670,11 @@ ParserResult<Args1..., Args2...> concat(ParserResult<Args1...> &&first, ParserRe
         return ParserResult<Args1..., Args2...>(std::move(*error));
     }
 
-    auto tuple1 = std::get<std::tuple<Args1...>>(first);
-    auto tuple2 = std::get<std::tuple<Args2...>>(second);
+    auto &&tuple1 = std::move(std::get<std::tuple<Args1...>>(first));
+    auto &&tuple2 = std::move(std::get<std::tuple<Args2...>>(second));
 
     return ParserResult<Args1..., Args2...> {
-        std::tuple_cat(tuple1, tuple2)
+        std::tuple_cat(std::move(tuple1), std::move(tuple2))
     };
 }
 
