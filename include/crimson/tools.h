@@ -554,10 +554,9 @@ using FirstResultVariant = std::variant<FirstTuple<ExposeType<Args>>...>;
 
 template <bool self, size_t index, typename ...Args>
 auto anyOfTupleSized(const std::tuple<Args ...> &value, Context &context) {
-    using Tuple = std::tuple<Args ...>;
     using Type = std::conditional_t<self, FirstResultVariant<Args...>, ResultVariant<Args...>>;
 
-    if constexpr (index >= std::tuple_size_v<Tuple>) {
+    if constexpr (index >= std::tuple_size_v<std::tuple<Args ...>>) {
         return context.error<Type>(ErrorNoMatchingPattern());
     } else {
         size_t start = context.state.index;
@@ -577,11 +576,7 @@ auto anyOfTupleSized(const std::tuple<Args ...> &value, Context &context) {
             };
 
             return ParserResult<Type>(
-                std::make_tuple(
-                    Type(
-                        std::in_place_index<index>, std::move(*ptr())
-                    )
-                )
+                std::make_tuple(Type(std::in_place_index<index>, std::move(*ptr())))
             );
         }
 
@@ -598,9 +593,37 @@ auto anyOfTupleSized(const std::tuple<Args ...> &value, Context &context) {
     }
 }
 
-template <bool self, typename ...Args>
-auto anyOfTuple(const std::tuple<Args ...> &value, Context &view) {
-    return anyOfTupleSized<self, 0, Args...>(value, view);
+template <size_t index, typename T, typename ...Args>
+requires (std::same_as<ExposeType<T>, ExposeType<Args>> && ...)
+auto anyOfTupleValued(const std::tuple<T, Args...> &value, Context &context) {
+    using Type = ExposeType<T>;
+    using ResultType = ExposeResultType<T>;
+
+    if constexpr (index >= std::tuple_size_v<std::tuple<T, Args ...>>) {
+        return ResultType { context.rawError(ErrorNoMatchingPattern()) };
+    } else {
+        size_t start = context.state.index;
+
+        auto subContext = context.extend(nullptr, nullptr);
+        subContext.matched = false;
+
+        auto result = expose(std::get<index>(value), subContext);
+
+        if (auto pointer = result.ptr()) {
+            return ResultType { Type(std::move(*pointer)) };
+        }
+
+        context.state.index = start;
+
+        auto error = result.error();
+        assert(error);
+
+        if (error->matched) {
+            return ResultType { std::move(*error) };
+        }
+
+        return anyOfTupleValued<index + 1, Args...>(value, context);
+    }
 }
 
 template <typename ...Args>
@@ -608,7 +631,7 @@ struct AnyOf: public RuleModifiers<AnyOf<Args...>> {
     std::tuple<Args...> components;
 
     auto expose(Context &context) const {
-        return anyOfTuple<false>(components, context);
+        return anyOfTupleSized<false, 0>(components, context);
     }
 
     explicit AnyOf(Args && ...args) : components(std::make_tuple(std::forward<Args>(args)...)) { }
@@ -619,10 +642,21 @@ struct AnyOfSelf: public RuleModifiers<AnyOfSelf<Args...>> {
     std::tuple<Args...> components;
 
     auto expose(Context &context) const {
-        return anyOfTuple<true>(components, context);
+        return anyOfTupleSized<true, 0>(components, context);
     }
 
     explicit AnyOfSelf(Args && ...args) : components(std::make_tuple(std::forward<Args>(args)...)) { }
+};
+
+template <typename ...Args>
+struct AnyOfValued: public RuleModifiers<AnyOfSelf<Args...>> {
+    std::tuple<Args...> components;
+
+    auto expose(Context &context) const {
+        return anyOfTupleValued<0>(components, context);
+    }
+
+    explicit AnyOfValued(Args && ...args) : components(std::make_tuple(std::forward<Args>(args)...)) { }
 };
 
 template <typename T>
