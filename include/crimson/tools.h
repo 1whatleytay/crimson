@@ -70,6 +70,17 @@ template <typename T, typename StoppableType>
 requires Exposable<T>
 struct SetStoppable;
 
+template <typename T, typename Tuple, std::size_t ... Is>
+constexpr T makeStructFromTupleHelper(Tuple &&t, std::index_sequence<Is...>) {
+    return T { std::get<Is>(std::forward<Tuple>(t))... };
+}
+
+template <typename T, typename Tuple>
+constexpr T makeStructFromTuple(Tuple&& t) {
+    constexpr auto tuple_size = std::tuple_size_v<std::remove_reference_t<Tuple>>;
+    return makeStructFromTupleHelper<T>(std::forward<Tuple>(t), std::make_index_sequence<tuple_size> { });
+}
+
 template <typename Self>
 struct RuleModifiers {
     Self &&self() {
@@ -112,6 +123,24 @@ struct RuleModifiers {
     template <typename K>
     auto map(K &&map) {
         return Map<Self, K> { self(), std::forward<K>(map) };
+    }
+
+    template <typename T>
+    auto make() {
+        return Map { self(), [](auto tuple) { return std::make_from_tuple<T>(std::move(tuple)); } };
+    }
+
+    template <typename T>
+    auto makeStruct() {
+        return Map { self(), [](auto tuple) { return makeStructFromTuple<T>(std::move(tuple)); } };
+    }
+
+    auto makeSelfUnique() {
+        return Map { self(), [](auto tuple) {
+            auto &v = std::get<0>(tuple);
+
+            return std::make_unique<std::remove_reference_t<decltype(v)>>(std::move(v));
+        } };
     }
 
     template <typename K>
