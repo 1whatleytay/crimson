@@ -206,17 +206,6 @@ struct Keyword: public RuleModifiers<Keyword> {
     explicit Keyword(std::string text) : text(std::move(text)) { }
 };
 
-template <typename T>
-struct Add: public RuleModifiers<Add<T>> {
-    T value;
-
-    ParserResult<T> expose(Context &context) const {
-        return ParserResult<T> { std::make_tuple(value) };
-    }
-
-    explicit Add(T &&value) : value(std::forward<T>(value)) { }
-};
-
 struct Token: public RuleModifiers<Token> {
     ParserResult<std::string> expose(Context &context) const {
         size_t size = context.state.until(context.token);
