@@ -651,7 +651,7 @@ auto anyOfTupleValued(const std::tuple<T, Args...> &value, Context &context) {
             return ResultType { std::move(*error) };
         }
 
-        return anyOfTupleValued<index + 1, Args...>(value, context);
+        return anyOfTupleValued<index + 1, T, Args...>(value, context);
     }
 }
 
