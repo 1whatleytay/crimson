@@ -667,7 +667,7 @@ struct AnyOfSelf: public RuleModifiers<AnyOfSelf<Args...>> {
 };
 
 template <typename ...Args>
-struct AnyOfValued: public RuleModifiers<AnyOfSelf<Args...>> {
+struct AnyOfValued: public RuleModifiers<AnyOfValued<Args...>> {
     std::tuple<Args...> components;
 
     auto expose(Context &context) const {
