@@ -26,6 +26,14 @@ std::string reasonSubtext(const ErrorNoMatchingPattern &reason) {
     return "Expected some subpattern here but gone none.";
 }
 
+std::string reasonSubtext(const ErrorVerifyFailure &reason) {
+    return reason.reason;
+}
+
+std::string reasonSubtext(const ErrorMustEnd &reason) {
+    return "Expected the end of the file but got more text.";
+}
+
 std::string reasonText(const ErrorReason &reason) {
     return std::visit([](const auto &value) { return reasonSubtext(value); }, reason);
 }
@@ -125,3 +133,47 @@ Error Context::rawError(ErrorReason reason) const {
 
 Context::Context(State &state, const Stoppable &space, const Stoppable &token)
     : state(state), space(space), token(token) { }
+
+LineDetails::LineDetails(const std::string &text, size_t index, bool backtrack) {
+    size_t lineIndex = index;
+
+    if (backtrack) {
+        if (lineIndex > 0)
+            lineIndex--;
+
+        while (lineIndex == text.size() || (lineIndex > 0 && std::isspace(text[lineIndex])))
+            lineIndex--;
+    }
+
+    // This is potentially slow.
+    // There's an evil bug somewhere here, in weird cases lineStart > lineEnd, going to push temp fix to State
+    int64_t lineStart = text.rfind('\n', lineIndex);
+    if (lineStart == std::string::npos) {
+        lineStart = 0;
+    } else {
+        lineStart++;
+    }
+
+    auto lineEnd = text.find('\n', lineIndex);
+    if (lineEnd == std::string::npos) {
+        lineEnd = text.size();
+    }
+
+    line = text.substr(lineStart, lineEnd - lineStart);
+
+    auto linePos = lineIndex - lineStart;
+
+    std::stringstream markerStream;
+
+    for (size_t a = 0; a < linePos; a++) {
+        if (std::isspace(line[a]))
+            markerStream << line[a];
+        else
+            markerStream << ' ';
+    }
+    markerStream << '^';
+
+    marker = markerStream.str();
+
+    lineNumber = std::count(text.begin(), text.begin() + lineStart, '\n') + 1;
+}

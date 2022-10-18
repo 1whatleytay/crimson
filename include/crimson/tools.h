@@ -1,5 +1,7 @@
 #pragma once
 
+#include <iostream> // Debug
+
 #include <crimson/crimson.h>
 
 template <typename T>
@@ -54,9 +56,17 @@ template <typename T, typename K>
 requires Exposable<T>
 struct Map;
 
+template <typename T>
+requires Exposable<T>
+struct Debug;
+
 template <typename T, typename K>
 requires Exposable<T>
 struct MapInto;
+
+template <typename T, typename K>
+requires Exposable<T>
+struct MapThrows;
 
 template <typename T>
 requires Exposable<T>
@@ -65,6 +75,10 @@ struct Discard;
 template <typename T>
 requires Exposable<T>
 struct MatchContext;
+
+template <typename T, typename Check>
+requires Exposable<T> && Exposable<Check>
+struct MatchOn;
 
 template <typename T, typename StoppableType>
 requires Exposable<T>
@@ -148,6 +162,11 @@ struct RuleModifiers {
         return MapInto<Self, K> { self(), std::forward<K>(map) };
     }
 
+    template <typename K>
+    auto mapThrows(K &&map) {
+        return MapThrows<Self, K> { self(), std::forward<K>(map) };
+    }
+
     auto discard() {
         return Discard<Self> { self() };
     }
@@ -156,17 +175,40 @@ struct RuleModifiers {
         return MatchContext<Self> { self() };
     }
 
+    auto noMatchContext() {
+        return NoAutoContext<Self> { self() };
+    }
+
+    template <typename Check>
+    auto matchOn(Check &&check) {
+        return MatchOn<Self, Check> { self(), std::forward<Check>(check) };
+    }
+
     template <typename StoppableType>
     auto setStoppable(StoppableType &&stoppable) {
         return SetStoppable<Self, StoppableType> { self(), std::forward<StoppableType>(stoppable) };
     }
+
+    auto debug(std::string name) {
+        return Debug<Self> { std::move(name), self() };
+    }
 };
 
 struct Push: public RuleModifiers<Push> {
-    ParserResult<> expose(Context &context) const {
+    ParserResult<> expose(Context &context) const { // NOLINT(readability-convert-member-functions-to-static)
         context.push();
 
         return ParserResult<> { std::make_tuple() };
+    }
+};
+
+struct End: public RuleModifiers<End> {
+    ParserResult<> expose(Context &context) const {
+        if (context.state.count == context.state.index) {
+            return ParserResult<> { std::make_tuple() };
+        }
+
+        return context.error<>(ErrorMustEnd { });
     }
 };
 
@@ -207,7 +249,7 @@ struct Keyword: public RuleModifiers<Keyword> {
 };
 
 struct Token: public RuleModifiers<Token> {
-    ParserResult<std::string> expose(Context &context) const {
+    ParserResult<std::string> expose(Context &context) const { // NOLINT(readability-convert-member-functions-to-static)
         size_t size = context.state.until(context.token);
 
         if (size <= 0)
@@ -250,7 +292,7 @@ struct UntilStoppable: public RuleModifiers<UntilStoppable<StoppableType>> {
         return ParserResult<std::string> { text };
     }
 
-    UntilStoppable(StoppableType &&stoppable) : stoppable(std::forward<StoppableType>(stoppable)) { }
+    explicit UntilStoppable(StoppableType &&stoppable) : stoppable(std::forward<StoppableType>(stoppable)) { }
 };
 
 template <typename T, typename StoppableType>
@@ -290,7 +332,7 @@ struct MatchContext: public RuleModifiers<MatchContext<T>> {
 };
 
 struct Match: public RuleModifiers<Match> {
-    ParserResult<> expose(Context &context) const {
+    ParserResult<> expose(Context &context) const { // NOLINT(readability-convert-member-functions-to-static)
         context.matched = true;
 
         return ParserResult<> { std::make_tuple() };
@@ -402,6 +444,32 @@ struct Fails: public RuleModifiers<Fails<T>> {
     explicit Fails(T &&value) : value(std::forward<T>(value)) { }
 };
 
+template <typename T, typename Check>
+requires Exposable<T> && Exposable<Check>
+struct MatchOn: public RuleModifiers<MatchOn<T, Check>> {
+    T value;
+    Check check;
+
+    using Result = ExposeResultType<T>;
+
+    Result expose(Context &context) const {
+        auto result = value.expose(context);
+
+        if (auto error = result.error()) {
+            if (error->matched || check.expose(context).ptr()) {
+                Error sub = std::move(*error);
+                sub.matched = true;
+
+                return Result { std::move(sub) };
+            }
+        }
+
+        return std::move(result);
+    }
+
+    explicit MatchOn(T &&value, Check &&check) : value(std::forward<T>(value)), check(std::forward<Check>(check)) { }
+};
+
 template <typename T>
 requires Exposable<T>
 struct Peek: public RuleModifiers<Peek<T>> {
@@ -464,14 +532,14 @@ struct MapInto: public RuleModifiers<MapInto<T, K>> {
         auto result = value.expose(context);
 
         struct {
-            K &map;
+            const K &map;
 
             ParserResultFromTuple<Result> operator()(Error &error) {
-                return { error };
+                return ParserResultFromTuple<Result> { std::move(error) };
             }
 
             ParserResultFromTuple<Result> operator()(typename decltype(result)::Type &v) {
-                return { map(std::move(v)) }; // assuming map returns a tuple
+                return ParserResultFromTuple<Result> { map(std::move(v)) }; // assuming map returns a tuple
             }
         } visitor { map };
 
@@ -479,6 +547,36 @@ struct MapInto: public RuleModifiers<MapInto<T, K>> {
     }
 
     explicit MapInto(T &&value, K &&map) : value(std::forward<T>(value)), map(std::forward<K>(map)) { }
+};
+
+template <typename T, typename K>
+requires Exposable<T>
+struct MapThrows: public RuleModifiers<MapInto<T, K>> {
+    T value;
+    K map;
+
+    using Result = std::invoke_result_t<K, Context &, ExposeType<T>>;
+
+    Result expose(Context &context) const {
+        auto result = value.expose(context);
+
+        struct {
+            Context &context;
+            const K &map;
+
+            Result operator()(Error &error) {
+                return Result { std::move(error) };
+            }
+
+            Result operator()(typename decltype(result)::Type &v) {
+                return map(context, std::move(v)); // assuming map returns a tuple
+            }
+        } visitor { context, map };
+
+        return std::visit(visitor, result);
+    }
+
+    explicit MapThrows(T &&value, K &&map) : value(std::forward<T>(value)), map(std::forward<K>(map)) { }
 };
 
 template <typename T>
@@ -603,7 +701,7 @@ auto anyOfTupleSized(const std::tuple<Args ...> &value, Context &context) {
         auto error = result.error();
         assert(error);
 
-        if (error->matched) {
+        if (index + 1 >= std::tuple_size_v<std::tuple<Args ...>> || error->matched) {
             return ParserResult<Type> { std::move(*error) };
         }
 
@@ -636,7 +734,7 @@ auto anyOfTupleValued(const std::tuple<T, Args...> &value, Context &context) {
         auto error = result.error();
         assert(error);
 
-        if (error->matched) {
+        if (index + 1 >= std::tuple_size_v<std::tuple<Args ...>> || error->matched) {
             return ResultType { std::move(*error) };
         }
 
@@ -712,18 +810,56 @@ struct Wrap: public RuleModifiers<Wrap<Produces...>> {
     explicit Wrap(const AnyRule<Produces...> *rule) : rule(rule) { }
 };
 
+template <typename T>
+requires Exposable<T>
+struct Debug: public RuleModifiers<Debug<T>> {
+    std::string name;
+
+    T value;
+
+    using Type = ExposeResultType<T>;
+
+    Type expose(Context &context) const {
+        auto start = context.state.index;
+
+        auto val = value.expose(context);
+
+        auto end = context.state.index;
+
+        if (Error *error = val.error()) {
+            const char *matchable = error->matched ? " matched" : "";
+
+            LineDetails details(std::string(context.state.text), error->index, false);
+            std::cout << "### DEBUG: " << name << " failed on line " << details.lineNumber;
+            std::cout << " with" << matchable << " error " << reasonText(error->reason) << "\n";
+
+            std::cout << " | " << details.line << "\n";
+            std::cout << " | " << details.marker << "\n";
+
+            std::cout << " - Text Consumed (" << start << ", " << end << "): \n";
+            std::cout << std::string(context.state.text + start, context.state.text + end);
+
+            std::cout << "\n";
+        }
+
+        return val;
+    }
+
+    explicit Debug(std::string name, T &&value) : name(std::move(name)), value(std::forward<T>(value)) { }
+};
+
 template <typename ...Args1, typename ...Args2>
 ParserResult<Args1..., Args2...> concat(ParserResult<Args1...> &&first, ParserResult<Args2...> &&second) {
-    if (auto error = std::get_if<Error>(&first)) {
+    if (auto error = first.error()) {
         return ParserResult<Args1..., Args2...>(std::move(*error));
     }
 
-    if (auto error = std::get_if<Error>(&second)) {
+    if (auto error = second.error()) {
         return ParserResult<Args1..., Args2...>(std::move(*error));
     }
 
-    auto &&tuple1 = std::move(std::get<std::tuple<Args1...>>(first));
-    auto &&tuple2 = std::move(std::get<std::tuple<Args2...>>(second));
+    auto &&tuple1 = std::move(*first.ptr());
+    auto &&tuple2 = std::move(*second.ptr());
 
     return ParserResult<Args1..., Args2...> {
         std::tuple_cat(std::move(tuple1), std::move(tuple2))
@@ -737,7 +873,15 @@ auto exposeTupleSized(const std::tuple<Args ...> &value, Context &view) {
     if constexpr (index >= std::tuple_size_v<Tuple>) {
         return ParserResult<> { std::tuple<> { } };
     } else {
-        return concat(expose(std::get<index>(value), view), exposeTupleSized<index + 1, Args...>(value, view));
+        auto result = expose(std::get<index>(value), view);
+
+        using Out = decltype(concat(std::move(result), exposeTupleSized<index + 1, Args...>(value, view)));
+
+        if (auto error = result.error()) {
+            return Out { std::move(*error) };
+        }
+
+        return concat(std::move(result), exposeTupleSized<index + 1, Args...>(value, view));
     }
 }
 

@@ -20,13 +20,17 @@ struct ErrorRequiresSpaceAfter { std::string keyword; };
 struct ErrorMissingToken { };
 struct ErrorProhibitsPattern { };
 struct ErrorNoMatchingPattern { };
+struct ErrorMustEnd { };
+struct ErrorVerifyFailure { std::string reason; };
 
 using ErrorReason = std::variant<
     ErrorMustMatchText,
     ErrorRequiresSpaceAfter,
     ErrorMissingToken,
     ErrorProhibitsPattern,
-    ErrorNoMatchingPattern
+    ErrorNoMatchingPattern,
+    ErrorMustEnd,
+    ErrorVerifyFailure
 >;
 
 std::string reasonText(const ErrorReason &reason);
@@ -43,6 +47,15 @@ struct Error {
 
     Error(const Error &other) = delete;
     Error(Error &&error) noexcept = default;
+};
+
+struct LineDetails {
+    std::string line;
+    std::string marker;
+
+    size_t lineNumber = 0;
+
+    LineDetails(const std::string &text, size_t index, bool backtrack = true);
 };
 
 template <typename T, typename ErrorT = Error>
@@ -203,6 +216,28 @@ auto expose(const T &t, Context &view) {
     return t.expose(view); // requires is Result
 }
 
+template <typename T>
+struct NoAutoContext {
+    using Type = T;
+
+    T value;
+
+    explicit NoAutoContext(T &&value) : value(std::forward<T>(value)) { }
+};
+
+template <typename T>
+struct IsNoAutoContextHelper {
+    constexpr static bool value = false;
+};
+
+template <typename T>
+struct IsNoAutoContextHelper<NoAutoContext<T>> {
+    constexpr static bool value = true;
+};
+
+template <typename T>
+concept IsNoAutoContext = IsNoAutoContextHelper<T>::value;
+
 template <typename ...Produces>
 struct AnyRule {
     std::unique_ptr<void, void(*)(void *)> value;
@@ -218,6 +253,15 @@ struct AnyRule {
     template <typename T>
     requires Exposable<T>
     AnyRule(T &&t) : value { new T(std::forward<T>(t)), [](void *v) { delete static_cast<T *>(v); } } {
+        func = [](Context &context, void *ptr) {
+            auto sub = context.extend(nullptr, nullptr);
+
+            return static_cast<T *>(ptr)->expose(sub);
+        };
+    }
+
+    template <typename T>
+    AnyRule(NoAutoContext<T> &&t) : value { new T(std::forward<T>(t)), [](void *v) { delete static_cast<T *>(v); } } {
         func = [](Context &context, void *ptr) {
             return static_cast<T *>(ptr)->expose(context);
         };
