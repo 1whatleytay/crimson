@@ -35,7 +35,9 @@ std::string reasonSubtext(const ErrorMustEnd &reason) {
 }
 
 std::string reasonText(const ErrorReason &reason) {
-    return std::visit([](const auto &value) { return reasonSubtext(value); }, reason);
+    return std::visit([](const auto &value) {
+        return reasonSubtext(value);
+    }, reason);
 }
 
 Error::Error(size_t index, ErrorReason reason, bool matched)
@@ -147,7 +149,7 @@ LineDetails::LineDetails(const std::string &text, size_t index, bool backtrack) 
 
     // This is potentially slow.
     // There's an evil bug somewhere here, in weird cases lineStart > lineEnd, going to push temp fix to State
-    int64_t lineStart = text.rfind('\n', lineIndex);
+    auto lineStart = static_cast<int64_t>(text.rfind('\n', lineIndex));
     if (lineStart == std::string::npos) {
         lineStart = 0;
     } else {
