@@ -139,6 +139,19 @@ struct RuleModifiers {
         return Map<Self, K> { self(), std::forward<K>(map) };
     }
 
+    template <typename Dest>
+    auto visitTo() {
+        return Map {
+            self(),
+
+            [](auto tuple) {
+                return std::visit([](auto value) {
+                    return Dest(value);
+                }, std::get<0>(tuple));
+            }
+        };
+    }
+
     template <typename T>
     auto make() {
         return Map { self(), [](auto tuple) { return std::make_from_tuple<T>(std::move(tuple)); } };
