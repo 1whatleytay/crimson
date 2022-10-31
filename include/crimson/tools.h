@@ -747,7 +747,7 @@ auto anyOfTupleValued(const std::tuple<T, Args...> &value, Context &context) {
         auto error = result.error();
         assert(error);
 
-        if (index + 1 >= std::tuple_size_v<std::tuple<Args ...>> || error->matched) {
+        if (index + 1 >= std::tuple_size_v<std::tuple<T, Args ...>> || error->matched) {
             return ResultType { std::move(*error) };
         }
 
