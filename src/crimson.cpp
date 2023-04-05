@@ -14,15 +14,15 @@ std::string reasonSubtext(const ErrorRequiresSpaceAfter &reason) {
     return stream.str();
 }
 
-std::string reasonSubtext(const ErrorMissingToken &reason) {
+std::string reasonSubtext(const ErrorMissingToken &) {
     return "Expected some token here.";
 }
 
-std::string reasonSubtext(const ErrorProhibitsPattern &reason) {
+std::string reasonSubtext(const ErrorProhibitsPattern &) {
     return "This pattern is explicitly prohibited here.";
 }
 
-std::string reasonSubtext(const ErrorNoMatchingPattern &reason) {
+std::string reasonSubtext(const ErrorNoMatchingPattern &) {
     return "Expected some subpattern here but gone none.";
 }
 
@@ -30,7 +30,7 @@ std::string reasonSubtext(const ErrorVerifyFailure &reason) {
     return reason.reason;
 }
 
-std::string reasonSubtext(const ErrorMustEnd &reason) {
+std::string reasonSubtext(const ErrorMustEnd &) {
     return "Expected the end of the file but got more text.";
 }
 
@@ -178,4 +178,8 @@ LineDetails::LineDetails(const std::string &text, size_t index, bool backtrack) 
     marker = markerStream.str();
 
     lineNumber = std::count(text.begin(), text.begin() + lineStart, '\n') + 1;
+}
+
+std::monostate getTupleFirst(std::tuple<> &&) {
+    return std::monostate { };
 }

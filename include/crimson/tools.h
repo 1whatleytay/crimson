@@ -40,17 +40,9 @@ template <typename T>
 requires Exposable<T>
 struct Many;
 
-template <typename T, typename K>
-requires Exposable<T>
-struct ManyMap;
-
 template <typename T>
 requires Exposable<T>
 struct Maybe;
-
-template <typename T, typename K>
-requires Exposable<T>
-struct MaybeMap;
 
 template <typename T, typename K>
 requires Exposable<T>
@@ -71,6 +63,10 @@ struct MapThrows;
 template <typename T>
 requires Exposable<T>
 struct Discard;
+
+template <typename T>
+requires Exposable <T>
+struct Collect;
 
 template <typename T>
 requires Exposable<T>
@@ -116,22 +112,20 @@ struct RuleModifiers {
         return Peek<Self> { self() };
     }
 
+    auto collect() {
+        return Map {
+            self(),
+
+            [](auto tuple) { return tuple; }
+        };
+    }
+
     auto many() {
         return Many<Self> { self() };
     }
 
-    template <typename K>
-    auto manyMap(K &&map) {
-        return ManyMap<Self, K> { self(), std::forward<K>(map) };
-    }
-
     auto maybe() {
         return Maybe<Self> { self() };
-    }
-
-    template <typename K>
-    auto maybeMap(K &&map) {
-        return MaybeMap<Self, K> { self(), std::forward<K>(map) };
     }
 
     template <typename K>
@@ -162,7 +156,7 @@ struct RuleModifiers {
         return Map { self(), [](auto tuple) { return makeStructFromTuple<T>(std::move(tuple)); } };
     }
 
-    auto makeSelfUnique() {
+    auto makeUnique() {
         return Map { self(), [](auto tuple) {
             auto &v = std::get<0>(tuple);
 
@@ -391,34 +385,36 @@ struct If: public RuleModifiers<If<ConditionType, TrueType, FalseType>> {
 };
 
 template <typename T>
+struct FirstTupleHelper { };
+
+template <>
+struct FirstTupleHelper<std::tuple<>> { using Type = std::monostate; };
+
+template <typename T, typename ...Args>
+struct FirstTupleHelper<std::tuple<T, Args...>> { using Type = T; };
+
+template <typename T>
+using FirstTuple = typename FirstTupleHelper<T>::Type;
+
+template <typename ...Args>
+using ResultVariant = std::variant<ExposeType<Args>...>;
+
+template <typename ...Args>
+using FirstResultVariant = std::variant<FirstTuple<ExposeType<Args>>...>;
+
+std::monostate getTupleFirst(std::tuple<> &&t);
+
+template <typename Arg>
+Arg &&getTupleFirst(std::tuple<Arg> &&t) {
+    return std::move(std::get<0>(t));
+}
+
+template <typename T>
 requires Exposable<T>
 struct Maybe: public RuleModifiers<Maybe<T>> {
     T value;
 
-    ParserResult<std::optional<ExposeType<T>>> expose(Context &context) const {
-        size_t start = context.state.index;
-
-        auto result = value.expose(context);
-
-        if (auto pointer = result.ptr()) {
-            return ParserResult<std::optional<ExposeType<T>>> { std::optional { *pointer } };
-        }
-
-        context.state.index = start;
-
-        return ParserResult<std::optional<ExposeType<T>>> { std::nullopt };
-    }
-
-    explicit Maybe(T &&value) : value(std::forward<T>(value)) { }
-};
-
-template <typename T, typename K>
-requires Exposable<T>
-struct MaybeMap: public RuleModifiers<Maybe<T>> {
-    T value;
-    K map;
-
-    using Result = std::invoke_result_t<K, ExposeType<T>>;
+    using Result = FirstTuple<ExposeType<T>>;
 
     ParserResult<std::optional<Result>> expose(Context &context) const {
         size_t start = context.state.index;
@@ -427,7 +423,7 @@ struct MaybeMap: public RuleModifiers<Maybe<T>> {
 
         if (auto pointer = result.ptr()) {
             return ParserResult<std::optional<Result>> {
-                std::optional { map(std::move(*pointer)) }
+                std::optional { getTupleFirst(std::move(*pointer)) }
             };
         }
 
@@ -436,7 +432,7 @@ struct MaybeMap: public RuleModifiers<Maybe<T>> {
         return ParserResult<std::optional<Result>> { std::nullopt };
     }
 
-    MaybeMap(T &&value, K &&map) : value(std::forward<T>(value)), map(std::forward<K>(map)) { }
+    Maybe(T &&value) : value(std::forward<T>(value)) { }
 };
 
 template <typename T>
@@ -597,42 +593,7 @@ requires Exposable<T>
 struct Many: public RuleModifiers<Many<T>> {
     T value;
 
-    ParserResult<std::vector<ExposeType<T>>> expose(Context &context) const {
-        std::vector<ExposeType<T>> list;
-
-        size_t lastIndex = context.state.index;
-
-        ExposeResultType<T> result = value.expose(context);
-        while (auto pointer = result.ptr()) {
-            list.push_back(std::move(*pointer));
-            lastIndex = context.state.index;
-
-            result = value.expose(context);
-        }
-
-        // always, since only way to exit that loop is for an error to happen
-        context.state.index = lastIndex;
-
-        auto error = result.error();
-        assert(error);
-
-        if (error->matched) {
-            return ParserResult<std::vector<ExposeType<T>>> { std::move(*error) };
-        }
-
-        return ParserResult<std::vector<ExposeType<T>>> { std::move(list) };
-    }
-
-    explicit Many(T &&value) : value(std::forward<T>(value)) { }
-};
-
-template <typename T, typename K>
-requires Exposable<T>
-struct ManyMap: public RuleModifiers<ManyMap<T, K>> {
-    T value;
-    K map;
-
-    using Result = std::invoke_result_t<K, ExposeType<T>>;
+    using Result = FirstTuple<ExposeType<T>>;
 
     ParserResult<std::vector<Result>> expose(Context &context) const {
         std::vector<Result> list;
@@ -641,7 +602,7 @@ struct ManyMap: public RuleModifiers<ManyMap<T, K>> {
 
         ExposeResultType<T> result = value.expose(context);
         while (auto pointer = result.ptr()) {
-            list.push_back(map(std::move(*pointer)));
+            list.push_back(getTupleFirst(std::move(*pointer)));
             lastIndex = context.state.index;
 
             result = value.expose(context);
@@ -660,26 +621,8 @@ struct ManyMap: public RuleModifiers<ManyMap<T, K>> {
         return ParserResult<std::vector<Result>> { std::move(list) };
     }
 
-    explicit ManyMap(T &&value, K &&map) : value(std::forward<T>(value)), map(std::forward<K>(map)) { }
+    explicit Many(T &&value) : value(std::forward<T>(value)) { }
 };
-
-template <typename T>
-struct FirstTupleHelper { };
-
-template <>
-struct FirstTupleHelper<std::tuple<>> { using Type = std::monostate; };
-
-template <typename T, typename ...Args>
-struct FirstTupleHelper<std::tuple<T, Args...>> { using Type = T; };
-
-template <typename T>
-using FirstTuple = typename FirstTupleHelper<T>::Type;
-
-template <typename ...Args>
-using ResultVariant = std::variant<ExposeType<Args>...>;
-
-template <typename ...Args>
-using FirstResultVariant = std::variant<FirstTuple<ExposeType<Args>>...>;
 
 template <bool self, size_t index, typename ...Args>
 auto anyOfTupleSized(const std::tuple<Args ...> &value, Context &context) {
@@ -756,36 +699,36 @@ auto anyOfTupleValued(const std::tuple<T, Args...> &value, Context &context) {
 }
 
 template <typename ...Args>
-struct AnyOf: public RuleModifiers<AnyOf<Args...>> {
+struct BranchSome: public RuleModifiers<BranchSome<Args...>> {
     std::tuple<Args...> components;
 
     auto expose(Context &context) const {
         return anyOfTupleSized<false, 0>(components, context);
     }
 
-    explicit AnyOf(Args && ...args) : components(std::make_tuple(std::forward<Args>(args)...)) { }
+    explicit BranchSome(Args && ...args) : components(std::make_tuple(std::forward<Args>(args)...)) { }
 };
 
 template <typename ...Args>
-struct AnyOfSelf: public RuleModifiers<AnyOfSelf<Args...>> {
+struct Branch: public RuleModifiers<Branch<Args...>> {
     std::tuple<Args...> components;
 
     auto expose(Context &context) const {
         return anyOfTupleSized<true, 0>(components, context);
     }
 
-    explicit AnyOfSelf(Args && ...args) : components(std::make_tuple(std::forward<Args>(args)...)) { }
+    explicit Branch(Args && ...args) : components(std::make_tuple(std::forward<Args>(args)...)) { }
 };
 
 template <typename ...Args>
-struct AnyOfValued: public RuleModifiers<AnyOfValued<Args...>> {
+struct Pick: public RuleModifiers<Pick<Args...>> {
     std::tuple<Args...> components;
 
     auto expose(Context &context) const {
         return anyOfTupleValued<0>(components, context);
     }
 
-    explicit AnyOfValued(Args && ...args) : components(std::make_tuple(std::forward<Args>(args)...)) { }
+    explicit Pick(Args && ...args) : components(std::make_tuple(std::forward<Args>(args)...)) { }
 };
 
 template <typename T>
