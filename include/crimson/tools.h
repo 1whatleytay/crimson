@@ -219,6 +219,12 @@ struct End: public RuleModifiers<End> {
     }
 };
 
+struct Anchor: public RuleModifiers<Anchor> {
+    ParserResult<size_t> expose(Context &context) const {
+        return ParserResult<size_t> { std::make_tuple(context.state.index) };
+    }
+};
+
 struct Text: public RuleModifiers<Text> {
     std::string text;
 
